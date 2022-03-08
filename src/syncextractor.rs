@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use ndarray::ArcArray2;
 use vidmod_node::{Frame, FrameKind, PullFrame, PullPort, PushFrame, PushPort, TickNode};
@@ -16,7 +16,11 @@ impl PullFrame for SyncExtractor {
     fn pull_frame(&mut self, port: &PullPort, count: usize) -> Frame {
         assert_eq!(count, 1);
         match port.name() {
-            "out" => Frame::U8x2(ArcArray2::<u8>::from_shape_vec((1, 1), vec![0]).unwrap()),
+            "out" => Frame::U8x2(VecDeque::from(vec![ArcArray2::<u8>::from_shape_vec(
+                (1, 1),
+                vec![0],
+            )
+            .unwrap()])),
             _ => panic!("Unknown port {}", port.name()),
         }
     }
