@@ -7,4 +7,3 @@ license = "MIT"
 [dependencies]
 ndarray = "0.15.4"
 vidmod-node = { version = "0.1.0", path = "../../vidmod-node" }
-vidmod-plugin = { version = "0.1.0", path = "../../vidmod-plugin" }
