@@ -1,78 +1,88 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 
-use ndarray::ArcArray2;
-use vidmod_node::{Frame, FrameKind, PullFrame, PullPort, PushFrame, PushPort, TickNode};
+use ndarray::ArcArray1;
+use vidmod_macros::*;
+use vidmod_node::{FrameKind, FrameSingle, Node2MT, Node2T, PullPort, PushPort};
 
-#[derive(Debug)]
-pub struct SyncExtractor {}
-
-impl SyncExtractor {
-    pub fn new(_params: BTreeMap<String, String>) -> Self {
-        Self {}
-    }
+#[node_decl]
+pub struct HSyncExtractor {
+    threshold: u16,
+    min_width: usize,
 }
 
-impl PullFrame for SyncExtractor {
-    fn pull_frame(&mut self, port: &PullPort, count: usize) -> Frame {
-        assert_eq!(count, 1);
-        match port.name() {
-            "out" => Frame::U8x2(VecDeque::from(vec![ArcArray2::<u8>::from_shape_vec(
-                (1, 1),
-                vec![0],
-            )
-            .unwrap()])),
-            _ => panic!("Unknown port {}", port.name()),
-        }
-    }
-
-    fn test_pull_port(&self, name: &str) -> bool {
-        name == "out"
-    }
-
-    fn pull_port_kind(&self, name: &str) -> FrameKind {
-        match name {
-            "out" => FrameKind::U8x2,
-            _ => panic!("Unknown port {}", name),
-        }
-    }
-    fn ready_to_pull(&self, port: &PullPort) -> usize {
-        match port.name() {
-            "out" => 1,
-            _ => panic!("Unknown port {}", port.name()),
+impl HSyncExtractor {
+    #[node_new]
+    pub fn new(params: BTreeMap<String, String>) -> Self {
+        let threshold = params.get("threshold").unwrap().as_str().parse().unwrap();
+        let min_width = params.get("min_width").unwrap().as_str().parse().unwrap();
+        Self {
+            threshold,
+            min_width,
         }
     }
 }
 
-impl PushFrame for SyncExtractor {
-    fn push_frame(&mut self, port: &PushPort, frame: Frame) {
-        match port.name() {
-            "in" => {
-                if let Frame::U16(a) = frame {
-                    assert!(a == vec![0]);
-                } else {
-                    panic!("Pushed frame wrong type");
+impl Node2T for HSyncExtractor {
+    fn init(&mut self) {
+        self.register_pushport("in", FrameKind::U16, self.min_width * 2);
+        self.register_pullport("out", FrameKind::U16x1, 1);
+    }
+
+    fn tick(&mut self) -> bool {
+        if self.inbuf_avail("in") == self.min_width * 2 {
+            if self.outbuf_avail("out") == 1 {
+                let buf = self.inbuf_peek("in", self.min_width * 2).unwrap_u16();
+                let mut start = self.min_width;
+                loop {
+                    if let Some(idx) = buf.iter().skip(start).position(|x| *x < self.threshold) {
+                        //println!("Testing sync {}->{}", start, start + idx);
+                        if buf
+                            .iter()
+                            .skip(start + idx)
+                            .take(100)
+                            .filter(|x| **x < self.threshold)
+                            .count()
+                            > 90
+                        {
+                            //println!("Found sync!");
+                            let line = self.inbuf_get("in", start + idx).unwrap_u16();
+                            self.outbuf_put_single(
+                                "out",
+                                FrameSingle::U16x1(ArcArray1::from_iter(line.iter().copied())),
+                            );
+                            break;
+                        } else {
+                            start = start + idx + 1;
+                        }
+                    } else {
+                        println!("Couldn't find sync- dumping entire line");
+                        let line = self.inbuf_get("in", self.min_width * 2).unwrap_u16();
+                        self.outbuf_put_single(
+                            "out",
+                            FrameSingle::U16x1(ArcArray1::from_iter(line.iter().copied())),
+                        );
+                        break;
+                    }
                 }
+                true
+            } else {
+                false
             }
-            _ => panic!("Unknown port {}", port.name()),
+        } else {
+            false
         }
     }
 
-    fn test_push_port(&self, name: &str) -> bool {
-        name == "in"
-    }
-
-    fn push_port_kind(&self, name: &str) -> FrameKind {
-        match name {
-            "in" => FrameKind::U16,
-            _ => panic!("Unknown port {}", name),
+    fn finish(&mut self) -> bool {
+        if self.inbuf_avail("in") > 0 {
+            println!("Finishing up- dumping entire input buffer");
+            let line = self.inbuf_get("in", self.inbuf_avail("in")).unwrap_u16();
+            self.outbuf_put_single(
+                "out",
+                FrameSingle::U16x1(ArcArray1::from_iter(line.iter().copied())),
+            );
         }
-    }
-    fn ready_to_push(&self, port: &PushPort) -> usize {
-        match port.name() {
-            "in" => 1,
-            _ => panic!("Unknown port {}", port.name()),
-        }
+        // Now that we've dumped our buffer, there's no more work to do
+        true
     }
 }
-
-impl TickNode for SyncExtractor {}
