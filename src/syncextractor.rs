@@ -2,7 +2,10 @@ use std::{cmp::min, collections::BTreeMap};
 
 use ndarray::ArcArray1;
 use vidmod_macros::*;
-use vidmod_node::{FrameKind, FrameSingle, Node2MT, Node2T, PullPort, PushPort};
+use vidmod_node::{
+    frame::{FrameKind, FrameSingle},
+    Node2MT, Node2T, PullPort, PushPort,
+};
 
 #[node_decl]
 pub struct HSyncExtractor {
