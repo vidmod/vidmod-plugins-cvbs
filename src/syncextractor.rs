@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{cmp::min, collections::BTreeMap};
 
 use ndarray::ArcArray1;
 use vidmod_macros::*;
